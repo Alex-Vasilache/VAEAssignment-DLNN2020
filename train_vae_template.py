@@ -88,6 +88,9 @@ def relu(x):
 def drelu(y, x=None):
     return 1. * (y > 0)
 
+def trick():
+    return np.random.normal()
+
 
 # Initialization was done not exactly according to Kingma et al. 2014 (he used Gaussian).
 # input to hidden weight
@@ -110,7 +113,7 @@ Wo = np.random.uniform(-std, std, size=(input_size, hidden_size))
 Bo = np.random.uniform(-std, std, size=(input_size, 1))
 
 
-def forward(input):
+def forward(input, alpha):
 
     # YOUR FORWARD PASS FROM HERE
     batch_size = input.shape[-1]
@@ -119,49 +122,56 @@ def forward(input):
         input = np.expand_dims(input, axis=1)
 
     # (1) linear
-    # H = W_i \times input + Bi
+    h = np.dot(Wi, input) + Bi
 
     # (2) ReLU
-    # H = ReLU(H)
+    h = relu(h)
 
     # (3) h > mu
     # Estimate the means of the latent distributions
-    # mean = Wm \times H + Bm
+    mean = np.dot(Wm, h) + Bm
 
     # (4) h > log var
     # Estimate the (diagonal) variances of the latent distributions
-    # logvar = Wv \times H + Bv
+    logvar = np.dot(Wv, h) + Bv
+    var = np.exp(logvar)
+    sigma = var ** (1/2)
 
     # (5) sample the random variable z from means and variances (refer to the "reparameterization trick" to do this)
+    eps = trick()
+    z = mean + eps * sigma
 
     # (6) decode z
-    # D = Wd \times z + Bd
+    d = np.dot(Wd, z) + Bd
 
     # (7) relu
-    # D = ReLU(D)
+    d = relu(d)
 
     # (8) dec to output
-    # output = Wo \times D + Bo
+    output = np.dot(Wo, d) + Bo
 
     # # (9) dec to p(x)
     # and (10) reconstruction loss function (same as the
     if loss_function == 'bce':
-
-        # BCE Loss
+        p = sigmoid(output)
+        loss = -np.sum(np.multiply(input, np.log(p)) + np.multiply(1 - input, np.log(1 - p)))
 
     elif loss_function == 'mse':
-
-        # MSE Loss
+        p = output
+        loss = np.sum(0.5 * (p - input) ** 2)
 
     # variational loss with KL Divergence between P(z|x) and U(0, 1)
 
-    #kl_div_loss = - 0.5 * (1 + logvar - mean^2 - e^logvar)
+    kl_div_loss = (- 0.5) * np.sum(1 + logvar - mean**2 - var)
 
     # your loss is the combination of
-    #loss = rec_loss + kl_div_loss
+    loss = loss + kl_div_loss
+
+    if debug:
+        print("output shape: ", p.shape)
 
     # Store the activations for the backward pass
-    # activations = ( ... )
+    activations = (h, mean, logvar, z, d, output, p)
 
     return loss, kl_div_loss, activations
 
@@ -173,6 +183,7 @@ def decode(z):
     # o = W_d \times z + B_d
 
     # p = sigmoid(o) if bce or o if mse
+    p = 0
 
     return p
 
@@ -384,7 +395,7 @@ def eval():
         sample_ = np.resize(sample_, (1, 560)).T
 
         # Here the sample_ is processed by the network to produce the reconstruction
-
+        p = 0
         img = np.sum(p, axis=-1)
         img = img / n_samples
 
