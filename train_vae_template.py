@@ -113,7 +113,7 @@ Wo = np.random.uniform(-std, std, size=(input_size, hidden_size))
 Bo = np.random.uniform(-std, std, size=(input_size, 1))
 
 
-def forward(input, alpha):
+def forward(input, eps=None):
 
     # YOUR FORWARD PASS FROM HERE
     batch_size = input.shape[-1]
@@ -138,7 +138,9 @@ def forward(input, alpha):
     sigma = var ** (1/2)
 
     # (5) sample the random variable z from means and variances (refer to the "reparameterization trick" to do this)
-    eps = trick()
+    if eps == None:
+        eps = trick()
+
     z = mean + eps * sigma
 
     # (6) decode z
@@ -177,13 +179,14 @@ def forward(input, alpha):
 
 
 def decode(z):
+    d = np.dot(Wd, z) + Bd
+    d = relu(d)
+    output = np.dot(Wo, d) + Bo
+    if loss_function == 'bce':
+        p = sigmoid(output)
 
-    # basically the decoding part in the forward pass: maaping z to p
-
-    # o = W_d \times z + B_d
-
-    # p = sigmoid(o) if bce or o if mse
-    p = 0
+    elif loss_function == 'mse':
+        p = output
 
     return p
 
@@ -350,7 +353,7 @@ def train():
             x_i = get_minibatch(batch_size, i, rand_indices)
             bsz = x_i.shape[-1]
 
-            loss, acts = forward(x_i, alpha=alpha)
+            loss, acts = forward(x_i)
             _, _, _, _, z, _, _, _, rec_loss, kl_loss = acts
             # lol I computed kl_div again here
 
@@ -413,6 +416,8 @@ def grad_check():
 
     dWi, dWm, dWv, dWd, dWo, dBi, dBm, dBv, dBd, dBo = gradients
 
+    eps, _, _, _, _, _, _, _, _, _ = acts
+
     for weight, grad, name in zip([Wi, Wm, Wv, Wd, Wo, Bi, Bm, Bv, Bd, Bo],
                                   [dWi, dWm, dWv, dWd, dWo, dBi, dBm, dBv, dBd, dBo],
                                   ['Wi', 'Wm', 'Wv', 'Wd', 'Wo', 'Bi', 'Bm', 'Bv', 'Bd', 'Bo']):
@@ -427,17 +432,20 @@ def grad_check():
             w = weight.flat[i]
 
             weight.flat[i] = w + delta
-            loss_positive, _ = forward(x)
+            loss_positive, _ = forward(x, eps)
 
             weight.flat[i] = w - delta
-            loss_negative, _ = forward(x)
+            loss_negative, _ = forward(x, eps)
 
             weight.flat[i] = w  # reset old value for this parameter
 
             grad_analytic = grad.flat[i]
             grad_numerical = (loss_positive - loss_negative) / (2 * delta)
 
-            rel_error = abs(grad_analytic - grad_numerical) / abs(grad_numerical + grad_analytic)
+            if grad_analytic == 0 and grad_numerical == 0:
+                rel_error = 0
+            else:
+                rel_error = abs(grad_analytic - grad_numerical) / abs(grad_numerical + grad_analytic)
 
             if rel_error > 0.001:
                 n_warnings += 1
@@ -466,7 +474,8 @@ def eval():
         sample_ = np.resize(sample_, (1, 560)).T
 
         # Here the sample_ is processed by the network to produce the reconstruction
-        p = 0
+        loss, act = forward(sample_)
+        _, _, _, _, _, _, _, p, _, _ = act
         img = np.sum(p, axis=-1)
         img = img / n_samples
 
